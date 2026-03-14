@@ -4,43 +4,60 @@ defmodule AFL.EdgeNode do
 
   @max_buffer 5;
 
-  def start_link(id), do: :gen_statem.start_link(__MODULE__, id, name: __MODULE__)
+  def start_link(id), do: :gen_statem.start_link({:local, __MODULE__}, __MODULE__, id, [])
 
   @impl true
+  @spec init(any()) :: {:ok, :idle, %{buffer: [], id: any()}}
   def init(id) do
-    Logger.info("Starting edge node #{id}")
-    {:ok, :idle, %{id: id, buffer: []}}
+    Logger.info("starting edge node #{id}")
+    :ets.new(:edge_buffer, [:set, :protected, :named_table])
+
+    {:ok, :connected, %{id: id, buffer: []}}
   end
 
   @impl true
   def callback_mode, do: :handle_event_function
 
-  # --- CENÁRIO 1: Conectado e recebe ordem de treinar ---
+  defp send_to_aggregator(weights) do
+  if :rand.uniform(100) > 10 do
+    AFL.Aggregator.update(weights, 100)
+    :ok
+  else
+    {:error, :timeout}
+  end
+end
+
   @impl true
   def handle_event(:cast, :train_and_send, :connected, data) do
-    weights = MockML.train() # Simula o treinamento
+    weights = MockML.train()
 
     case send_to_aggregator(weights) do
       :ok -> :keep_state_and_data
       {:error, :timeout} ->
-        Logger.error("Conexão perdida! Movendo para modo offline.")
-        new_data = add_to_buffer(data, weights)
+        Logger.error("lost conn, #{self()} is offline")
+        new_data = add_to_buffer(weights)
+
         {:next_state, :disconnected, new_data, [{:state_timeout, 5000, :retry}]}
     end
   end
 
-  # --- CENÁRIO 2: Offline e tenta reconectar ---
+
   @impl true
   def handle_event(:state_timeout, :retry, :disconnected, data) do
-    Logger.info("Tentando reconectar e limpar buffer...")
-    # Lógica de retry com o buffer aqui
+    Logger.info("trying reconnection...")
+
     {:next_state, :connected, data}
   end
 
-  # Helper para o Ring Buffer do seu quadro
-  defp add_to_buffer(data, weights) do
-    new_buffer = [weights | data.buffer] |> Enum.take(@max_buffer_size)
-    %{data | buffer: new_buffer}
+  defp add_to_buffer(weights) do
+    count = :ets.info(:edge_buffer, :size)
+
+    if count >= @max_buffer do
+      Logger.info("not enough space in buffer ets, applying ring buffer...")
+      :ets.insert(:edge_buffer, {rem(count, @max_buffer), weights})
+    else
+      :ets.insert(:edge_buffer, {count, weights})
+    end
   end
 
 end
