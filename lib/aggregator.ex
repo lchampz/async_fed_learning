@@ -29,7 +29,13 @@ defmodule AFL.Aggregator do
   end
 
   def update(e_weights, n_k) do
-    GenServer.cast(__MODULE__, {:apply_update, e_weights, n_k})
+    if Process.whereis(__MODULE__) do
+       GenServer.cast(__MODULE__, {:apply_update, e_weights, n_k})
+       :ok
+    else
+       {:error, :not_reached}
+    end
+
   end
 
   @doc """
