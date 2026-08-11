@@ -7,9 +7,9 @@ paper. Mantenha atualizado se o paper mudar.
 **Título**: Resiliência Estrutural via Árvores de Supervisão para Aprendizado Federado
 Assíncrono em Edge Computing: Caracterização Empírica sob Injeção de Falhas
 
-**Autor/Fonte**: Victor Longchamps — Programa de Pós-Graduação em Ciência da
-Computação (paper próprio, implementação em `lib/`, código-fonte LaTeX em
-`artigo/main.tex` deste repositório)
+**Autor/Fonte**: Victor Longchamps, sem filiação institucional (paper
+próprio, implementação em `lib/`, código-fonte LaTeX em `artigo/main.tex`
+deste repositório)
 
 ## Fatos-chave
 
