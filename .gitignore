@@ -22,3 +22,14 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 async_fed_learning-*.tar
 
+# macOS junk
+.DS_Store
+
+# Artefatos LaTeX gerados pelo tectonic (não versionar, só o .tex fonte)
+artigo/main.pdf
+artigo/main.log
+artigo/main.xdv
+artigo/overleaf_upload/main.pdf
+artigo/overleaf_upload/main.log
+artigo/overleaf_upload/main.xdv
+

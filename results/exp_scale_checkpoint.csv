@@ -1,0 +1,3 @@
+model,bytes_per_entry,param_count,us_per_insert
+small,101800,25450,1.08
+large,5335080,1333770,1.5

@@ -22,7 +22,10 @@ defmodule AFL.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-     {:nx, "~> 0.7"}
+     {:nx, "~> 0.7"},
+     {:axon, "~> 0.7"},
+     {:scidata, "~> 0.1"},
+     {:exla, "~> 0.9"}
     ]
   end
 end

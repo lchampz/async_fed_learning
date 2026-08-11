@@ -2,87 +2,164 @@ defmodule AFL.EdgeNode do
   @behaviour :gen_statem
   require Logger
 
-  @max_buffer 5;
+  # Hard cap on locally buffered updates. Oldest entry is overwritten when full.
+  @max_buffer 5
 
-  def start_link(id), do: :gen_statem.start_link({:local, __MODULE__}, __MODULE__, id, [])
+  def start_link(id),
+    do: :gen_statem.start_link({:local, __MODULE__}, __MODULE__, id, [])
 
   @impl true
-
   def init(id) do
-    Logger.info("starting edge node #{id}")
-    :ets.new(:edge_buffer, [:set, :protected, :named_table])
+    Logger.info("[EdgeNode #{id}] Starting")
+    # Reivindica o buffer do AFL.BufferKeeper em vez de criar uma tabela
+    # nova incondicionalmente — se uma instância anterior deste EdgeNode
+    # morreu (crash), o conteúdo bufferizado sobrevive e é devolvido aqui.
+    AFL.BufferKeeper.claim_buffer()
 
-    monitor = Process.monitor(Process.whereis(AFL.Aggregator))
+    {state, monitor_ref, actions} =
+      case Process.whereis(AFL.Aggregator) do
+        nil ->
+          Logger.warning("[EdgeNode #{id}] Aggregator not found — starting disconnected")
+          {:disconnected, nil, [{:state_timeout, 5000, :retry}]}
 
-    {:ok, :connected, %{id: id, buffer: [], monitor: monitor}}
+        pid ->
+          {:connected, Process.monitor(pid), []}
+      end
+
+    data = %{
+      id: id,
+      monitor_ref: monitor_ref,
+      # total writes ever (not ETS size) — drives the circular key calculation
+      buffer_count: 0,
+      # aggregator version at the moment this node last went offline
+      last_synced_version: 0
+    }
+
+    {:ok, state, data, actions}
   end
 
   @impl true
   def callback_mode, do: :handle_event_function
+
+  # ---- CONNECTED ----
 
   @impl true
   def handle_event(:cast, :train_and_send, :connected, data) do
     weights = MockML.train()
 
     case AFL.Aggregator.update(weights, 100) do
-      :ok -> :keep_state
-      {:error, _} -> disconnect(weights, data)
+      :ok -> :keep_state_and_data
+      {:error, _} -> go_offline(weights, data)
     end
   end
 
+  # :ets.give_away/3 notifica o NOVO proprietário com essa mesma mensagem
+  # (não só a transferência automática via :heir na morte do dono anterior)
+  # — chega tanto em :connected quanto em :disconnected, dependendo de
+  # quando o claim aconteceu; nenhuma ação além de aceitar é necessária.
   @impl true
-  def handle_event(:info, {:DOWN, _ref, :process, _pid, _r}, :connected, data) do
-    Logger.error("aggregator process went down.")
-    {:next_state, :disconnected, data, [{:state_timeout, 5000, :retry}]}
+  def handle_event(:info, {:"ETS-TRANSFER", :edge_buffer, _from_pid, _gift}, _state, _data) do
+    :keep_state_and_data
   end
 
+  # Aggregator process went down — captured via Process.monitor
   @impl true
-  def handle_event(:cast, :train_n_seed, :disconnected, _data) do
+  def handle_event(:info, {:DOWN, _ref, :process, _pid, _reason}, :connected, data) do
+    Logger.error("[EdgeNode #{data.id}] Aggregator went down → :disconnected")
+
+    # Capture version best-effort (aggregator may already be gone)
+    last_version =
+      try do
+        AFL.Aggregator.get_version()
+      catch
+        _, _ -> data.last_synced_version
+      end
+
+    new_data = %{data | monitor_ref: nil, last_synced_version: last_version}
+    {:next_state, :disconnected, new_data, [{:state_timeout, 5000, :retry}]}
+  end
+
+  # ---- DISCONNECTED ----
+
+  @impl true
+  def handle_event(:cast, :train_and_send, :disconnected, data) do
     weights = MockML.train()
-
-    add_to_buffer(weights)
-    :keep_state
+    new_count = write_to_ring_buffer(weights, data.last_synced_version, data.buffer_count)
+    {:keep_state, %{data | buffer_count: new_count}}
   end
 
+  # Stale :DOWN signal arriving after we already transitioned — discard
+  @impl true
+  def handle_event(:info, {:DOWN, _ref, :process, _pid, _reason}, :disconnected, _data) do
+    :keep_state_and_data
+  end
+
+  # Reconnection retry loop (exponential backoff can be added by scaling the timeout)
   @impl true
   def handle_event(:state_timeout, :retry, :disconnected, data) do
-    Logger.info("trying reconnection...")
+    Logger.info("[EdgeNode #{data.id}] Attempting reconnection…")
 
-    case (Process.whereis(AFL.Aggregator)) do
-      nil -> {:keep_state, data, [{:state_timeout, 5000, :retry}]}
+    case Process.whereis(AFL.Aggregator) do
+      nil ->
+        {:keep_state, data, [{:state_timeout, 5000, :retry}]}
+
       pid ->
         new_ref = Process.monitor(pid)
-        Logger.info("reconnected! syncing buffer..")
+        Logger.info("[EdgeNode #{data.id}] Reconnected — flushing buffer")
+        flush_buffer()
+        current_version = AFL.Aggregator.get_version()
 
-        #impl send ets buffer to aggregator and clean it
+        new_data = %{
+          data
+          | monitor_ref: new_ref,
+            buffer_count: 0,
+            last_synced_version: current_version
+        }
 
-        {:next_state, :connected, %{data | monitor: new_ref}}
+        {:next_state, :connected, new_data}
     end
   end
 
-
-  defp add_to_buffer(weights) do
-    count = :ets.info(:edge_buffer, :size)
-    key = rem(count, @max_buffer)
-
-    if count >= @max_buffer, do: Logger.info("not enough space in buffer ets, applying ring buffer...")
-
-    :ets.insert(:edge_buffer, {key, weights})
+  # Chamado em parada ORDENADA (:gen_statem.stop/1, supervisor shutdown) —
+  # NÃO é chamado em :kill (sinal não-capturável, pula terminate/3). Essa
+  # assimetria é exatamente o que queremos: uma parada deliberada limpa o
+  # buffer (próxima instância começa do zero); um crash preserva o
+  # conteúdo para o herdeiro devolver depois.
+  @impl true
+  def terminate(_reason, _state, _data) do
+    :ets.delete_all_objects(:edge_buffer)
+    :ok
   end
 
-  defp disconnect(weights, data) do
-    add_to_buffer(weights)
-    {:next_state, :disconnected, data, [{:state_timeout, 5000, :retry}]}
+  # ---- Private helpers ----
+
+  defp go_offline(weights, data) do
+    new_count = write_to_ring_buffer(weights, data.last_synced_version, data.buffer_count)
+    new_data = %{data | monitor_ref: nil, buffer_count: new_count}
+    {:next_state, :disconnected, new_data, [{:state_timeout, 5000, :retry}]}
   end
 
-   defp send_to_aggregator(weights) do
-    if :rand.uniform(100) > 10 do
-      case AFL.Aggregator.update(weights, 100) do
-        {:noreply, _} -> :ok
-      end
-    else
-      {:error, :timeout}
+  # Uses `total_count` (not ETS size) as the ring pointer so the circular
+  # behaviour works correctly when the table is full and entries are overwritten.
+  defp write_to_ring_buffer(weights, edge_version, total_count) do
+    key = rem(total_count, @max_buffer)
+
+    if total_count >= @max_buffer do
+      Logger.warning("[EdgeNode] Buffer full (NES) — overwriting index #{key}")
     end
+
+    :ets.insert(:edge_buffer, {key, weights, edge_version})
+    total_count + 1
   end
 
+  defp flush_buffer do
+    updates = :ets.tab2list(:edge_buffer)
+
+    Enum.each(updates, fn {_key, weights, edge_version} ->
+      AFL.Aggregator.update(weights, 100, edge_version)
+    end)
+
+    :ets.delete_all_objects(:edge_buffer)
+    Logger.info("[EdgeNode] Flushed #{length(updates)} buffered update(s)")
+  end
 end

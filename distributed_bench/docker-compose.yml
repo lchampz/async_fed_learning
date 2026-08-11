@@ -1,0 +1,50 @@
+services:
+  aggregator:
+    build: .
+    hostname: aggregator
+    environment:
+      - BENCH_OUTPUT_DIR=/results
+      - REP=${REP:-1}
+    command: ["elixir", "--sname", "aggregator@aggregator", "--cookie", "afl_docker_secret", "bench.exs", "aggregator", "5", "5000"]
+    networks: [afl_net]
+    volumes:
+      - ./results:/results
+
+  edge1:
+    build: .
+    hostname: edge1
+    command: ["elixir", "--sname", "edge1@edge1", "--cookie", "afl_docker_secret", "bench.exs", "edge", "aggregator@aggregator", "10"]
+    networks: [afl_net]
+    depends_on: [aggregator]
+
+  edge2:
+    build: .
+    hostname: edge2
+    command: ["elixir", "--sname", "edge2@edge2", "--cookie", "afl_docker_secret", "bench.exs", "edge", "aggregator@aggregator", "10"]
+    networks: [afl_net]
+    depends_on: [aggregator]
+
+  edge3:
+    build: .
+    hostname: edge3
+    command: ["elixir", "--sname", "edge3@edge3", "--cookie", "afl_docker_secret", "bench.exs", "edge", "aggregator@aggregator", "20"]
+    networks: [afl_net]
+    depends_on: [aggregator]
+
+  edge4:
+    build: .
+    hostname: edge4
+    command: ["elixir", "--sname", "edge4@edge4", "--cookie", "afl_docker_secret", "bench.exs", "edge", "aggregator@aggregator", "50"]
+    networks: [afl_net]
+    depends_on: [aggregator]
+
+  edge5:
+    build: .
+    hostname: edge5
+    command: ["elixir", "--sname", "edge5@edge5", "--cookie", "afl_docker_secret", "bench.exs", "edge", "aggregator@aggregator", "500"]
+    networks: [afl_net]
+    depends_on: [aggregator]
+
+networks:
+  afl_net:
+    driver: bridge

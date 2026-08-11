@@ -1,8 +1,8 @@
-defmodule AsyncFedLearningTest do
+defmodule AFL.SmokeTest do
   use ExUnit.Case
-  doctest AsyncFedLearning
 
-  test "greets the world" do
-    assert AsyncFedLearning.hello() == :world
+  test "MockML generates tensors of the expected shape" do
+    w = MockML.train()
+    assert Nx.shape(w) == {MockML.model_size()}
   end
 end
