@@ -77,20 +77,20 @@ descritos como ``resilientes'' quando implementados sobre runtimes com
 tolerância a falhas nativa, mas essa afirmação raramente é verificada
 empiricamente. Este trabalho submete um sistema real de FL assíncrono em
 Elixir/BEAM (\textbf{AFL}, \textit{Asynchronous Federated Learning}) a
-\textbf{injeção de falhas sistemática} (\textit{chaos engineering}), não
-apenas a testes unitários anedóticos. O resultado central é que a
+\textbf{injeção de falhas sistemática} (\textit{chaos engineering}), em
+vez de testes unitários anedóticos. O resultado central é que a
 suposição de resiliência não se
 sustentava integralmente, em \textbf{dois} componentes distintos. O
 processo de borda (\textit{EdgeNode}) não estava em nenhuma árvore de
 supervisão, e seu buffer ETS morria junto com o processo em caso de
-\textit{crash} --- sob 60 falhas injetadas, \textbf{100\% dos gradientes
+\textit{crash}: sob 60 falhas injetadas, \textbf{100\% dos gradientes
 bufferizados eram perdidos} (60/60). Mais grave, descoberto numa segunda
-rodada de revisão adversarial: o \textbf{Aggregator} --- o único ponto de
-agregação do sistema --- era corretamente reiniciado pelo supervisor, mas
+rodada de revisão adversarial, o \textbf{Aggregator} (o único ponto de
+agregação do sistema) era corretamente reiniciado pelo supervisor, mas
 seu \emph{estado} não; sob 100 rodadas de treino injetadas em 20
 \textit{crashes}, \textbf{100\% do modelo global era destruído} a cada
-falha, reiniciando sempre a partir de pesos estáticos. Corrigem-se ambos
-os gaps com a mesma técnica --- um supervisor dinâmico
+falha, reiniciando sempre a partir de pesos estáticos. Ambos os gaps são
+corrigidos com a mesma técnica: um supervisor dinâmico
 (\texttt{AFL.EdgeNodeSupervisor}) e herdeiros ETS
 (\texttt{AFL.BufferKeeper} para o buffer, \texttt{AFL.ModelKeeper} para o
 modelo) que preservam o estado através de reinícios; sob as mesmas falhas
@@ -99,21 +99,21 @@ foram perdidos}, com tempo de recuperação sub-milissegundo preservado
 (mediana de $\statExpRThreeAggregatorMedian$\,ms para o Aggregator e $\statExpRThreeEdgeNodeMedian$\,ms para o EdgeNode,
 respectivamente). Uma falha concorrente entre os dois processos protegidos
 não revela nenhuma interação problemática entre os mecanismos de correção.
-A correção, porém, não elimina toda a resiliência residual: um terceiro
+A correção, porém, não elimina toda a resiliência residual. Um terceiro
 experimento mostra que, se o próprio processo herdeiro ETS morrer antes do
 processo que ele protege, o vínculo do \texttt{:heir} fica órfão e
-\textbf{100\% do conteúdo é perdido} --- e que encadear um segundo
+\textbf{100\% do conteúdo é perdido}; encadear um segundo
 herdeiro não fecharia essa janela, apenas a deslocaria um nível pela
-mesma coincidência de timing. A correção estrutural aplicada --- posse
+mesma coincidência de timing. A correção estrutural aplicada, posse
 invertida (um processo trivial, sem lógica de domínio, possui a tabela
 permanentemente em vez de repassá-la) combinada, para o modelo global,
-com checkpoint em disco --- fecha esse gap por completo para o estado
+com checkpoint em disco, fecha esse gap por completo para o estado
 mais crítico do sistema
 (\textbf{\statExpRFiveModelOwnerDeadPct{}\%} de perda ao matar o dono do
 modelo, contra 100\% antes), mas deixa um resíduo aceito e caracterizado
 para o buffer de gradientes
 (\textbf{\statExpRFiveBufferOwnerDeadPct{}\%} de perda ao matar seu dono,
-sem persistência em disco) --- um trade-off explícito, não uma omissão.
+sem persistência em disco): um trade-off explícito, não uma omissão.
 Uma validação adicional em rede real (nós BEAM
 distribuídos entre containers Docker conectados por TCP/IP genuíno, não
 \texttt{Process.sleep}) reproduz o mesmo speedup em ordem de grandeza
@@ -121,8 +121,8 @@ distribuídos entre containers Docker conectados por TCP/IP genuíno, não
 confirmando que a simulação de latência usada nos demais experimentos não
 mascara os resultados de resiliência. A contribuição central deste
 trabalho não é uma nova técnica de agregação, mas uma metodologia de
-verificação --- via injeção de falhas sistemática, com evidência
-quantitativa antes/depois, não por argumento de design --- que expôs
+verificação, via injeção de falhas sistemática, com evidência
+quantitativa antes/depois, em vez de argumento de design, que expôs
 gaps reais num sistema que já citava sua plataforma (BEAM/OTP) como
 justificativa de resiliência.
 \end{abstract}
@@ -140,8 +140,8 @@ O Aprendizado de Máquina Federado~\cite{mcmahan2017} surgiu como solução
 para treinar modelos globais preservando a privacidade local dos dados.
 No paradigma síncrono, porém, o servidor central bloqueia o avanço do modelo
 global até que um quórum pré-definido de ENs conclua seu ciclo de treinamento
-local e transmita os gradientes. Em redes de Edge Computing --- caracterizadas
-por largura de banda limitada, jitter elevado e desconexões intermitentes ---
+local e transmita os gradientes. Em redes de Edge Computing, caracterizadas
+por largura de banda limitada, jitter elevado e desconexões intermitentes,
 esse modelo sofre com o problema dos \textit{stragglers}~\cite{li2020survey}:
 basta um único nó lento para paralisar todo o processo de agregação.
 
@@ -155,24 +155,24 @@ tornando o sistema tão lento quanto seu participante mais lento.
 
 Para contornar essa limitação, abordagens assíncronas como o SSP~\cite{ho2013}
 e o FedAsync~\cite{xie2019} permitem ao servidor avançar com subconjuntos
-de atualizações, ao custo de introduzir \textit{staleness} --- gradientes
+de atualizações, ao custo de introduzir \textit{staleness}: gradientes
 calculados com base em versões desatualizadas do modelo global.
 
 Uma segunda lacuna, ortogonal à de \textit{staleness} e menos discutida na
-literatura de FL, é a \textbf{verificação} (não apenas a suposição) de
-tolerância a falhas. Trabalhos que implementam FL sobre runtimes com
-supervisão nativa --- BEAM/OTP, atores, \textit{let-it-crash} --- tendem a
+literatura de FL, é a \textbf{verificação} da tolerância a falhas, e não
+apenas sua suposição. Trabalhos que implementam FL sobre runtimes com
+supervisão nativa (BEAM/OTP, atores, \textit{let-it-crash}) tendem a
 tratar a resiliência como uma propriedade herdada automaticamente da
 plataforma, validada no máximo por testes unitários pontuais (matar um
-processo, verificar que ele volta), não pela prática de \textit{Chaos
+processo, verificar que ele volta), e não pela prática de \textit{Chaos
 Engineering}~\cite{basiri2016}: injeção de falhas sistemática e
 deliberada para descobrir, empiricamente, se as garantias reivindicadas de
-fato se sustentam. Este trabalho argumenta que essa
-suposição precisa ser testada sistematicamente: como demonstrado na
+fato se sustentam. Essa
+suposição precisa ser testada sistematicamente. Como demonstrado na
 Seção~\ref{sec:results}, mesmo um sistema construído sobre uma plataforma
 com tolerância a falhas nativa pode ter processos inteiros fora de
 qualquer árvore de supervisão, e estruturas de dados que não sobrevivem ao
-próprio \textit{crash} do processo que as criou --- um gap real,
+próprio \textit{crash} do processo que as criou. Trata-se de um gap real,
 descoberto neste trabalho por meio de injeção de falhas sistemática, não
 de inspeção de código.
 
@@ -181,26 +181,26 @@ A contribuição deste trabalho é quádrupla:
   \item \textbf{Caracterização empírica de resiliência via injeção de falhas}:
         em vez de assumir que a plataforma OTP garante tolerância a falhas
         por si só, submetemos o sistema a \textit{crashes} sistemáticos e
-        medimos perda de dados e tempo de recuperação --- método pouco comum
+        medimos perda de dados e tempo de recuperação, método pouco comum
         em trabalhos de FL, que tipicamente tratam resiliência como
         propriedade qualitativa da plataforma escolhida, não como algo a
         verificar empiricamente;
   \item \textbf{Dois gaps de resiliência reais, descobertos e corrigidos}: o
         processo de borda (EdgeNode) não estava em nenhuma árvore de
         supervisão, e seu \textit{ring buffer} ETS não sobrevivia ao
-        próprio \textit{crash} do processo que o criava --- corrigido via
+        próprio \textit{crash} do processo que o criava. Corrigido via
         \texttt{AFL.EdgeNodeSupervisor} (supervisão dinâmica) e
         \texttt{AFL.BufferKeeper} (herdeiro ETS). Mais grave, descoberto
-        numa rodada posterior de revisão adversarial: o Aggregator era
+        numa rodada posterior de revisão adversarial, o Aggregator era
         corretamente reiniciado pelo supervisor, mas seu \emph{estado}
-        (pesos, versão, total de amostras) não --- corrigido via
+        (pesos, versão, total de amostras) não. Corrigido via
         \texttt{AFL.ModelKeeper} (mesma técnica de herdeiro ETS). Ambos
         medidos empiricamente antes/depois (Seção~\ref{sec:results});
   \item \textbf{Extensão do escopo de falhas e um terceiro gap
         deliberadamente não corrigido}: dois experimentos adicionais
         (Seção~\ref{sec:results}) testam falha concorrente entre os dois
         processos protegidos (sem interação problemática encontrada) e a
-        janela de crash do próprio herdeiro --- um terceiro gap real,
+        janela de crash do próprio herdeiro: um terceiro gap real,
         confirmado mas \textbf{não corrigido} nesta versão, documentado
         como tal em vez de omitido (Seção~\ref{sec:discussion});
   \item \textbf{Validação em rede real}: os mesmos resultados de
@@ -231,12 +231,12 @@ comunicação, mas a sincronização global em cada rodada limita sua
 aplicabilidade em ambientes heterogêneos. Abordagens assíncronas como o
 SSP~\cite{ho2013} e o FedAsync~\cite{xie2019} contornam essa limitação
 permitindo que o servidor avance com subconjuntos de atualizações, ao
-custo de introduzir \textit{staleness} --- gradientes calculados com base
+custo de introduzir \textit{staleness}: gradientes calculados com base
 em versões desatualizadas do modelo global. O AFL usado neste trabalho é
 um sistema desse tipo (FedAvg incremental ponderado por tamanho de
 amostra, com penalidade de \textit{staleness} hiperbólica e
 \textit{ring buffer} local para continuidade durante desconexões); a
-mecânica de agregação em si não é o objeto de estudo deste trabalho ---
+mecânica de agregação em si não é o objeto de estudo deste trabalho, e
 serve apenas como o sistema real sobre o qual a resiliência é
 caracterizada.
 
@@ -245,14 +245,14 @@ Bonawitz et al.~\cite{bonawitz2019} discutiram desafios de escala no FL,
 incluindo falhas de dispositivos e comunicação não-confiável, mas tratam
 a tolerância a falhas qualitativamente, sem injeção de falhas sistemática.
 Shi et al.~\cite{shi2020} analisaram o trade-off entre eficiência de
-comunicação e qualidade do modelo em redes Edge --- também sem verificar
+comunicação e qualidade do modelo em redes Edge, também sem verificar
 empiricamente garantias de resiliência.
 
 \textbf{Engenharia do Caos.}
 Basiri et al.~\cite{basiri2016} formalizaram \textit{Chaos Engineering}
 como disciplina: injeção de falhas sistemática e deliberada em produção
 para descobrir, empiricamente, se as garantias de resiliência reivindicadas
-de fato se sustentam --- em contraste com testes unitários pontuais ou
+de fato se sustentam, em contraste com testes unitários pontuais ou
 inspeção de código. Essa prática é comum em sistemas web de grande escala,
 mas pouco aplicada a sistemas de FL, onde a resiliência tende a ser tratada
 como propriedade herdada automaticamente de runtimes com supervisão nativa
@@ -261,7 +261,7 @@ como propriedade herdada automaticamente de runtimes com supervisão nativa
 \textbf{Diferencial em relação ao estado da arte.}
 Este trabalho não propõe um novo mecanismo de agregação: propõe submeter
 um sistema de FL real, construído sobre uma plataforma com tolerância a
-falhas nativa, à prática de Chaos Engineering~\cite{basiri2016} --- e
+falhas nativa, à prática de Chaos Engineering~\cite{basiri2016}, e
 mostra que essa verificação encontra gaps reais que inspeção de código e
 testes unitários pontuais não encontrariam. O AFL serve neste trabalho
 como o objeto de estudo, não como a contribuição central.
@@ -360,7 +360,7 @@ possibilidade de \textit{exponential backoff}.
 
 A arquitetura descrita até aqui supervisiona apenas o processo
 \texttt{AFL.Aggregator} (via \texttt{AFL.Application} $\to$
-\texttt{Supervisor}) --- mas supervisionar o \emph{processo} não é o mesmo
+\texttt{Supervisor}), mas supervisionar o \emph{processo} não é o mesmo
 que proteger o \emph{estado} que ele guarda. A injeção de falhas
 sistemática (Experimento~R, Seção~\ref{sec:exp_h}) revelou dois gaps
 distintos, um em cada componente do sistema:
@@ -368,12 +368,12 @@ distintos, um em cada componente do sistema:
 \begin{enumerate}[leftmargin=*,noitemsep]
   \item \textbf{EdgeNode sem supervisão alguma.} O \texttt{EdgeNode} era
     iniciado diretamente pelo código chamador (testes, experimentos), sem
-    nenhum supervisor --- se o processo falha por qualquer motivo, nada o
+    nenhum supervisor: se o processo falha por qualquer motivo, nada o
     reinicia. Verificado empiricamente: um \texttt{EdgeNode} morto via
     \texttt{Process.exit(pid, :kill)} nunca reaparece sob
     \texttt{Process.whereis/1}. Adicionalmente, sua tabela ETS
     \texttt{:edge\_buffer} (Seção~\ref{sec:arch}) era criada sem herdeiro
-    (\texttt{:heir}) --- destruída junto com o processo, incondicionalmente.
+    (\texttt{:heir}), destruída junto com o processo, incondicionalmente.
     Mesmo que algo reiniciasse o EdgeNode, a nova instância criaria uma
     tabela vazia; os gradientes bufferizados no momento do \textit{crash}
     seriam perdidos de forma permanente e silenciosa.
@@ -385,7 +385,7 @@ distintos, um em cada componente do sistema:
     estado a partir dos mesmos pesos iniciais estáticos, incondicionalmente.
     Verificado empiricamente: após treinar por 5 rodadas (versão 5, pesos
     $\neq \mathbf{0}$) e matar o processo, a instância reiniciada aparece
-    em $\approx0{,}1$\,ms --- mas com \textbf{versão 0, pesos iniciais,
+    em $\approx0{,}1$\,ms, mas com \textbf{versão 0, pesos iniciais,
     todo o progresso de treinamento destruído}. Isso é estruturalmente mais
     grave que o gap do EdgeNode: lá, cada nó perde até $B_{\max}=5$
     gradientes bufferizados; aqui, um único \textit{crash} do único
@@ -394,14 +394,14 @@ distintos, um em cada componente do sistema:
     sido acumulado.
 \end{enumerate}
 
-\textbf{Correções implementadas} (mesma técnica --- herdeiro ETS via
-\texttt{:heir} + supervisão --- aplicada a ambos os componentes):
+\textbf{Correções implementadas} (mesma técnica, herdeiro ETS via
+\texttt{:heir} mais supervisão, aplicada a ambos os componentes):
 
 \begin{description}[leftmargin=*,noitemsep]
   \item[\texttt{AFL.EdgeNodeSupervisor}] Um \texttt{DynamicSupervisor}
     adicionado à árvore de supervisão da aplicação, com estratégia
-    \texttt{:one\_for\_one} e \texttt{restart: :permanent} para o EdgeNode
-    --- reinício automático garantido sob crash.
+    \texttt{:one\_for\_one} e \texttt{restart: :permanent} para o EdgeNode:
+    reinício automático garantido sob crash.
   \item[\texttt{AFL.BufferKeeper}] Um processo simples, permanentemente
     supervisionado (nunca reinicia junto com o EdgeNode), que atua como
     herdeiro fixo da tabela \texttt{:edge\_buffer}. Ao iniciar, o EdgeNode
@@ -412,7 +412,7 @@ distintos, um em cada componente do sistema:
     \texttt{\{:"ETS-TRANSFER", ...\}}; a nova instância a reivindica de
     volta. Uma parada \emph{ordenada} (\texttt{:gen\_statem.stop/1},
     diferente de um \textit{crash}) invoca \texttt{terminate/3}, que limpa
-    o buffer deliberadamente --- a assimetria entre parada ordenada e
+    o buffer deliberadamente. Essa assimetria entre parada ordenada e
     \textit{crash} é exatamente o comportamento desejado: início limpo
     numa parada intencional, preservação de dados numa falha real.
   \item[\texttt{AFL.ModelKeeper}] Mesma técnica aplicada ao estado do
@@ -423,17 +423,17 @@ distintos, um em cada componente do sistema:
     recente em vez de sempre usar os pesos estáticos do
     \texttt{child\_spec}) e \texttt{checkpoint/1} após \emph{cada}
     atualização de estado (\texttt{handle\_cast}, \texttt{reset},
-    \texttt{restore}) --- o custo de um \texttt{:ets.insert} adicional por
+    \texttt{restore}); o custo de um \texttt{:ets.insert} adicional por
     update é aceito em troca de nunca perder progresso de treinamento a um
     \textit{crash}.
 \end{description}
 
-Estas correções --- e sua eficácia medida empiricamente contra o design
-original --- são os Experimentos R1 e R2 (Seção~\ref{sec:exp_h}), e não
+Estas correções, e sua eficácia medida empiricamente contra o design
+original, são os Experimentos R1 e R2 (Seção~\ref{sec:exp_h}), e não
 alterações cosméticas: um sistema que se anuncia resiliente por rodar
 sobre uma plataforma com tolerância a falhas nativa, mas que nunca testou
-essa propriedade sob falha real, pode estar --- como este estava, em dois
-componentes distintos, até este trabalho --- silenciosamente quebrado.
+essa propriedade sob falha real pode estar, como este estava, em dois
+componentes distintos até este trabalho, silenciosamente quebrado.
 
 % ============================================================
 \section{Framework Matemático}
@@ -462,7 +462,7 @@ N_{\text{new}} = N_{\text{old}} + \hat{n}_k
 \end{equation}
 
 \noindent Como $\alpha + \beta = 1$ e ambos são não-negativos, a atualização
-é uma combinação convexa --- decorre diretamente que
+é uma combinação convexa; decorre diretamente que
 $\|W_{t+1}\| \leq \max(\|W_t\|, \|W_k\|)$, i.e., a agregação nunca amplifica
 a norma dos pesos além do maior dos dois operandos.
 
@@ -486,7 +486,7 @@ experimentos foram executados em hardware commodity (Apple Silicon
 M-series) \textbf{sem GPU}, confirmando a viabilidade em recursos de Edge.
 
 O módulo \texttt{MockML} gera tensores sintéticos de dimensão $d=10$,
-isolando a variável de rede do conteúdo computacional do update --- essa é
+isolando a variável de rede do conteúdo computacional do update. Essa é
 a base reutilizada pela Validação em Rede Real
 (Seção~\ref{sec:exp_dist}), herdada da caracterização de latência
 original. O caminho de produção usado pelo Experimento R
@@ -496,7 +496,7 @@ MNIST (\texttt{Scidata}), particionadas entre os ENs por \textit{shards}
 ordenados por classe (McMahan et al.~\cite{mcmahan2017}, \textit{setting}
 non-IID): com 2~\textit{shards} por nó em $K=5$ nós, cada EN observa
 predominantemente 1--3 dígitos, não uma amostra representativa das 10
-classes --- isso garante que a caracterização de resiliência ocorre sobre
+classes. Isso garante que a caracterização de resiliência ocorre sobre
 o sistema real de treinamento, não sobre uma simulação simplificada.
 
 \subsection{Parâmetros Fixos}
@@ -539,10 +539,10 @@ simplificada).
 inicia-se um \texttt{EdgeNode} supervisionado
 (\texttt{AFL.EdgeNodeSupervisor.start\_edge\_node/1}), força-se
 \texttt{:disconnected} (mata-se o Aggregator e aguarda-se o \texttt{:DOWN}
-monitorado propagar --- determinístico, sem corrida com o restart
+monitorado propagar; é determinístico, sem corrida com o restart
 automático do supervisor), escrevem-se 3 gradientes no \textit{ring
 buffer}, e então mata-se o \emph{próprio} EdgeNode
-(\texttt{Process.exit(pid, :kill)} --- sinal não-capturável, não passa por
+(\texttt{Process.exit(pid, :kill)}, sinal não-capturável, que não passa por
 \texttt{terminate/3}). Mede-se quantos dos 3 gradientes sobrevivem na
 instância reiniciada. Repete-se com o mecanismo ORIGINAL (uma tabela ETS
 sem herdeiro, criada por um processo descartável, fora do caminho de
@@ -552,7 +552,7 @@ produção) para estabelecer a linha de base do gap descoberto
 \textbf{R3 --- Distribuição do tempo de recuperação.} Para 20 rodadas por
 alvo (Aggregator; EdgeNode supervisionado): captura-se o \textit{pid}
 atual, mata-se o processo, e mede-se o tempo (resolução de microssegundos,
-\textit{polling} agressivo sem \textit{sleep} --- um \textit{polling} de
+\textit{polling} agressivo sem \textit{sleep}: um \textit{polling} de
 10\,ms mascararia toda a variância real, como identificado empiricamente
 durante a execução deste experimento) até que o nome registrado aponte
 para um novo \textit{pid} vivo, distinto do anterior.
@@ -563,27 +563,27 @@ rodadas: treina-se o Aggregator por 5 rodadas reais
 \textit{crash}; mata-se o processo (\texttt{Process.exit(pid, :kill)}) e
 aguarda-se o supervisor reiniciá-lo; mede-se quantas rodadas de progresso
 (diferença de versão) sobrevivem. Repete-se com o mecanismo ORIGINAL
-(reconstrução analítica determinística a partir de pesos estáticos ---
+(reconstrução analítica determinística a partir de pesos estáticos,
 comportamento exato de uma versão anterior deste trabalho, sem
 \texttt{AFL.ModelKeeper}) para estabelecer a linha de base do gap mais
 grave descoberto neste trabalho (Seção~\ref{sec:gap}).
 
 \textbf{R4 --- Falha concorrente.} Os protocolos R1-R3 testam um único
-processo falhando por vez --- deixando em aberto se
+processo falhando por vez, o que deixa em aberto se
 \texttt{AFL.BufferKeeper} e \texttt{AFL.ModelKeeper}, mecanismos
 independentes com tabelas ETS independentes, seguem funcionando
 corretamente quando os dois processos que protegem (EdgeNode e Aggregator)
 morrem na mesma janela de tempo. Para \statExpRFourTrials{} rodadas:
 treina-se o Aggregator, bufferiza-se gradientes no EdgeNode (já
 desconectado), e então mata-se os dois processos em sucessão imediata, sem
-aguardar nenhuma recuperação entre as duas mortes --- medindo a perda de
+aguardar nenhuma recuperação entre as duas mortes, medindo a perda de
 cada mecanismo de forma independente sob esse estresse concorrente.
 
 \textbf{R5 --- Crash do dono sob posse invertida.} O \texttt{:heir} de uma
 tabela ETS é vinculado ao PID específico do processo herdeiro
 \emph{no momento da criação da tabela}; se esse herdeiro morrer e for
 reiniciado pelo supervisor, a tabela existente permanece vinculada ao PID
-antigo (morto) --- nada realinha isso automaticamente, e um segundo
+antigo (morto). Nada realinha isso automaticamente, e um segundo
 herdeiro encadeado só deslocaria a mesma janela um nível acima, pela
 mesma coincidência de timing (Seção~\ref{sec:r5} discute o argumento
 estrutural completo). A correção aplicada troca o padrão de
@@ -603,18 +603,18 @@ dependente correspondente.
 \label{sec:exp_dist}
 
 Todos os experimentos anteriores medem latência de rede via
-\texttt{Process.sleep} dentro de uma única VM BEAM --- adequado para
+\texttt{Process.sleep} dentro de uma única VM BEAM: adequado para
 isolar a variável de interesse (Seção~\ref{sec:exp}), mas não uma prova de
 que os resultados se sustentam sob rede de fato. O Erlang distribuído é
 nativo do BEAM; aproveita-se isso aqui para repetir o cenário de
 \textit{stragglers} do Experimento~A entre nós BEAM genuinamente
-distribuídos --- processos do sistema operacional separados, em
+distribuídos: processos do sistema operacional separados, em
 containers Docker isolados, conectados por uma rede TCP/IP real (não
 simulada) via bridge do Docker.
 
 Um \texttt{Aggregator} minimalista e $K=5$ \textit{edges}, cada um em seu
 próprio container, com as mesmas latências locais do Experimento A
-($\ell = [10,10,20,50,500]$\,ms) --- mas aqui, diferentemente do
+($\ell = [10,10,20,50,500]$\,ms). Aqui, diferentemente do
 Experimento A, $\ell_k$ representa apenas o tempo de processamento
 local simulado; o tempo de rede entre \textit{edge} e Aggregator é
 genuíno, não somado ao \texttt{sleep}. Mede-se throughput
@@ -656,11 +656,11 @@ todas as 20 rodadas de \textit{crash} injetado} (60 de 60 gradientes,
 3 por rodada). Isso confirma empiricamente o gap identificado na
 Seção~\ref{sec:gap}: a suposição de que ``roda sobre BEAM/OTP'' implica
 resiliência automática é falsa para qualquer processo fora da árvore de
-supervisão --- inclusive, até este trabalho, o EdgeNode do próprio AFL.
+supervisão, inclusive, até este trabalho, o EdgeNode do próprio AFL.
 
 Sob o mecanismo \textbf{corrigido} (\texttt{AFL.EdgeNodeSupervisor} +
 \texttt{AFL.BufferKeeper}), \textbf{0 dos 60 gradientes foram perdidos} nas
-mesmas 20 rodadas de \textit{crash} injetado --- preservação total. A
+mesmas 20 rodadas de \textit{crash} injetado: preservação total. A
 correção depende de dois elementos concomitantes (Seção~\ref{sec:gap}):
 supervisão para garantir que uma nova instância exista, e herdeiro ETS
 para garantir que o conteúdo bufferizado sobreviva até essa nova instância
@@ -678,15 +678,15 @@ posterior à correção do EdgeNode. Sob o mecanismo \textbf{original}
 (child\_spec estático, sem \texttt{AFL.ModelKeeper}), treinar o Aggregator
 por 5 rodadas e então matá-lo resulta em \textbf{100\% de perda do
 progresso de treinamento em todas as 20 rodadas de \textit{crash}
-injetado} (100 de 100 rodadas de treino, 5 por rodada) --- o processo
+injetado} (100 de 100 rodadas de treino, 5 por rodada). O processo
 reaparece rapidamente (Seção~\ref{sec:r3}), mas com versão 0 e pesos
 iniciais estáticos, como se nenhum treinamento tivesse ocorrido. Isso é
 estruturalmente mais grave que o gap do EdgeNode: aqui, um único
 \textit{crash} do único processo de agregação apaga o modelo para todos
-os nós, não apenas os gradientes de um nó. Sob o mecanismo
+os nós, e não só os gradientes de um nó. Sob o mecanismo
 \textbf{corrigido} (\texttt{AFL.ModelKeeper}), \textbf{0 das 100 rodadas
 de treino foram perdidas} nas mesmas 20 rodadas de \textit{crash}
-injetado --- verificado diretamente, não apenas pela contagem de versão:
+injetado. A verificação foi direta, além da simples contagem de versão:
 os pesos recuperados após o \textit{crash} são numericamente idênticos
 aos pesos imediatamente antes dele.
 
@@ -695,9 +695,9 @@ aos pesos imediatamente antes dele.
 
 A Figura~\ref{fig:resilience}(c) mostra o Protocolo~R3: o tempo entre o
 \textit{crash} e a disponibilidade de uma nova instância viva e registrada
-é \textbf{sub-milissegundo} para ambos os alvos --- Aggregator (mediana
-$\approx\statExpRThreeAggregatorMedian$\,ms) e EdgeNode supervisionado (mediana
-$\approx\statExpRThreeEdgeNodeMedian$\,ms) ---, medido com \textit{polling} agressivo em
+é \textbf{sub-milissegundo} para ambos os alvos (Aggregator, mediana
+$\approx\statExpRThreeAggregatorMedian$\,ms, e EdgeNode supervisionado, mediana
+$\approx\statExpRThreeEdgeNodeMedian$\,ms), medido com \textit{polling} agressivo em
 microssegundos (um \textit{polling} de 10\,ms, usado numa primeira versão
 deste experimento, mascarava toda a variância real: toda amostra caía em
 exatamente o mesmo valor, artefato da granularidade de medição, não do
@@ -705,10 +705,10 @@ sistema medido). Para contextualizar a escala: tempos de recuperação de
 orquestradores de contêiner convencionais (ex.: reinício de um
 \textit{pod} Kubernetes) são tipicamente medidos em \textbf{segundos}; a
 recuperação aqui é $>1000\times$ mais rápida porque não há
-re-provisionamento de processo do sistema operacional --- apenas a criação
+re-provisionamento de processo do sistema operacional, apenas a criação
 de um novo processo BEAM leve dentro de uma VM já em execução, seguida da
 reivindicação do estado preservado. Isso é uma propriedade estrutural do
-modelo de atores do BEAM, não um ajuste de configuração --- mas, como R2
+modelo de atores do BEAM, não um ajuste de configuração. Mas, como R2
 demonstra, é uma propriedade que protege apenas o \emph{processo}: sem
 \texttt{AFL.ModelKeeper}/\texttt{AFL.BufferKeeper}, um processo pode
 reaparecer em $0{,}1$\,ms e ainda assim ter perdido 100\% do que importava.
@@ -721,7 +721,7 @@ A Figura~\ref{fig:resilience2}(a) mostra o Protocolo~R4: sob
 em sucessão imediata e sem sincronização entre as duas mortes,
 \textbf{\statExpRFourBufferLost{} dos \statExpRFourBufferWritten{}
 gradientes bufferizados} e \textbf{\statExpRFourRoundsLost{} das
-\statExpRFourRoundsTrained{} rodadas de treino} foram perdidos --- ambos
+\statExpRFourRoundsTrained{} rodadas de treino} foram perdidos: ambos
 os mecanismos preservam estado integralmente mesmo sob esse estresse
 concorrente. Este é um resultado \emph{negativo} no sentido usual do termo
 (nenhum problema novo encontrado), mas informativo: \texttt{AFL.BufferKeeper}
@@ -734,12 +734,12 @@ arquitetural se sustenta sob estresse, não é apenas presumida por design.
 \label{sec:r5}
 
 Uma primeira versão deste experimento media exatamente o que o nome
-sugere --- uma janela de corrida entre a morte do herdeiro e a morte do
-dono --- e o resultado \textbf{contradisse a caracterização anterior
+sugere (uma janela de corrida entre a morte do herdeiro e a morte do
+dono), e o resultado \textbf{contradisse a caracterização anterior
 desta limitação} (descrita então como ``uma janela teoricamente
 possível, mas não testada''): matar o herdeiro (\texttt{AFL.BufferKeeper})
 e, sem aguardar seu \textit{restart}, matar o dono (EdgeNode) imediatamente
-depois causava perda de 100\% do conteúdo bufferizado, não apenas em
+depois causava perda de 100\% do conteúdo bufferizado, e não só em
 alguns \textit{trials} raros. A causa é estrutural, não uma corrida
 estreita: o \texttt{:heir} de uma tabela ETS é vinculado ao PID do
 processo herdeiro no momento da criação da tabela, e nada no sistema
@@ -747,7 +747,7 @@ realinha esse vínculo quando o herdeiro reinicia --- a vulnerabilidade
 persiste por todo o intervalo entre o crash do herdeiro e o próximo crash
 do dono, que pode ser arbitrariamente longo.
 
-A correção óbvia --- um segundo herdeiro que protege o primeiro --- não
+A correção óbvia, um segundo herdeiro que protege o primeiro, não
 fecha essa janela: ela apenas a desloca um nível acima, sujeita à mesma
 coincidência de timing entre o segundo herdeiro e o primeiro. A correção
 estrutural é não ter herdeiro: \texttt{AFL.BufferKeeper} e
@@ -755,28 +755,28 @@ estrutural é não ter herdeiro: \texttt{AFL.BufferKeeper} e
 \emph{permanentemente} (posse invertida), nunca as repassando ao worker
 via \texttt{:ets.give\_away/3}. Como nenhum dos dois tem lógica de
 domínio (nenhuma agregação, nenhum tratamento de gradiente), sua própria
-superfície de crash é próxima de zero --- e o crash do \emph{worker}
+superfície de crash é próxima de zero, e o crash do \emph{worker}
 (EdgeNode ou Aggregator) deixa de poder tocar a tabela por construção,
-não apenas na prática. Para o \texttt{AFL.ModelKeeper} especificamente,
+e não só na prática. Para o \texttt{AFL.ModelKeeper} especificamente,
 onde a perda dói mais (o modelo global inteiro), a correção escala além
 do processo/ETS: cada atualização também grava um checkpoint atômico em
 disco (arquivo temporário + \texttt{File.rename!/2}, atômico em POSIX),
-relido no próprio \texttt{init/1} caso este processo --- ou a BEAM
-inteira --- reinicie.
+relido no próprio \texttt{init/1} caso este processo, ou a BEAM
+inteira, reinicie.
 
 A Figura~\ref{fig:resilience2}(b) mostra o resultado desse redesenho sob
 o teste que realmente importa depois da correção: não mais ``herdeiro
-morre, depois o dono'', mas diretamente ``o dono morre'' --- já que não
+morre, depois o dono'', mas diretamente ``o dono morre'', já que não
 há mais herdeiro para matar primeiro. Medido sobre \statExpRFiveTrials{}
 \textit{trials} por cenário: matar \texttt{AFL.ModelKeeper} diretamente
 resulta em \textbf{\statExpRFiveModelOwnerDeadLost{} das
 \statExpRFiveModelOwnerDeadWritten{} rodadas perdidas
-(\statExpRFiveModelOwnerDeadPct{}\%)} --- o checkpoint em disco fecha o
+(\statExpRFiveModelOwnerDeadPct{}\%)}. O checkpoint em disco fecha o
 gap por completo para o modelo global, o caso que mais importava. Matar
 \texttt{AFL.BufferKeeper} diretamente, por outro lado, resulta em
 \textbf{\statExpRFiveBufferOwnerDeadLost{} dos
 \statExpRFiveBufferOwnerDeadWritten{} gradientes perdidos
-(\statExpRFiveBufferOwnerDeadPct{}\%)} --- sem persistência em disco para
+(\statExpRFiveBufferOwnerDeadPct{}\%)}: sem persistência em disco para
 o buffer, a tabela morre com seu dono, e a árvore
 \texttt{:rest\_for\_one} apenas garante que o EdgeNode reinicia em
 cascata de forma consistente, não que o conteúdo sobreviva. Este é um
@@ -784,7 +784,7 @@ resíduo \textbf{aceito e caracterizado}, não uma omissão: a redundância
 no nível de processo não se fecha por composição (proteger um processo
 com outro apenas move a vulnerabilidade para o segundo); eliminá-la por
 completo exige a mesma escalada para uma camada de persistência aplicada
-ao modelo --- deixada como trabalho futuro imediato
+ao modelo, deixada como trabalho futuro imediato
 (Seção~\ref{sec:conclusion}), já que a superfície de crash de um
 processo com zero lógica de domínio, embora pequena, não é literalmente
 zero (finalização pelo supervisor, \texttt{Process.exit/2} externo,
@@ -811,22 +811,22 @@ Experimento~A, mas entre nós BEAM genuinamente distribuídos em containers
 Docker conectados por TCP/IP real. Sobre \statExpADistTrials{} repetições:
 throughput assíncrono de \textbf{\statExpADistAsyncUps{} $\pm$
 \statExpADistAsyncCI{}} upd/s (contra \statExpAAsyncUps{} $\pm$ 0,1 upd/s
-simulado --- uma diferença de apenas \statExpADistAsyncGapPct{}\%, atribuível
+simulado, uma diferença de apenas \statExpADistAsyncGapPct{}\%, atribuível
 ao overhead genuíno de rede/serialização ausente da simulação de VM
 única); throughput síncrono de \textbf{\statExpADistSyncUps{} $\pm$
 \statExpADistSyncCI{}} upd/s (essencialmente idêntico ao simulado,
-\statExpASyncUps{} $\pm$ 0,0 upd/s --- esperado, já que o síncrono é
+\statExpASyncUps{} $\pm$ 0,0 upd/s, como esperado, já que o síncrono é
 dominado pelo \textit{straggler} de 500\,ms, real ou simulado); e speedup
 de \textbf{$\statExpADistSpeedup$ $\pm$ \statExpADistSpeedupCI{}}, mesma
 ordem de grandeza do $\statExpASpeedup$ simulado. A conclusão central do
-Experimento~A --- que a barreira síncrona, não o conteúdo computacional do
-update, é o gargalo --- não é um artefato da simulação de latência via
+Experimento~A, de que a barreira síncrona, não o conteúdo computacional do
+update, é o gargalo, não é um artefato da simulação de latência via
 \texttt{Process.sleep}: sustenta-se sob rede TCP/IP genuína, com uma
 pequena e explicável penalidade de overhead real no braço assíncrono, e
 nenhuma penalidade mensurável no síncrono (que já era, por construção,
 limitado pelo nó mais lento). Uma ressalva honesta: a rede aqui é a bridge
 interna do Docker, com latência de trânsito sub-milissegundo entre
-containers no mesmo hospedeiro --- não uma rede geograficamente
+containers no mesmo hospedeiro, não uma rede geograficamente
 distribuída como um deploy real de Edge Computing veria; o objetivo deste
 experimento é validar que a pilha de rede real (TCP, serialização,
 \textit{scheduling} do sistema operacional) não muda a conclusão
@@ -847,7 +847,7 @@ qualitativa, não reproduzir latência de WAN.
 O Experimento~E mede o footprint exato de $B_{\max}=5$ entradas do ring
 buffer: $40$ bytes/entrada ($200$ bytes no total) para o tensor sintético
 $d=10$, contra $101{.}800$ bytes/entrada ($\approx 497$\,KB no total) para o
-MLP real $784\!\to\!32\!\to\!10$ --- um fator $\mathbf{2{.}545\times}$ maior.
+MLP real $784\!\to\!32\!\to\!10$: um fator $\mathbf{2{.}545\times}$ maior.
 Mesmo esta rede pequena já consome quase 0,5\,MB por nó apenas no ring
 buffer; a Seção~\ref{sec:discussion} discute a extrapolação para modelos de
 produção.
@@ -860,24 +860,24 @@ produção.
 \label{sec:discussion_gap}
 
 O resultado mais importante deste trabalho (Seções~\ref{sec:r1}
-e~\ref{sec:r2}) não é sobre FL especificamente --- é sobre a diferença
+e~\ref{sec:r2}) não é sobre FL especificamente. É sobre a diferença
 entre \emph{usar} uma plataforma com tolerância a falhas e \emph{verificar}
 que essa tolerância se aplica a todos os componentes do próprio sistema. O
 AFL sempre citou ``BEAM/OTP'' e ``árvore de supervisão'' como justificativa
-de resiliência (Seção~\ref{sec:arch}), e essa citação não era falsa --- o
+de resiliência (Seção~\ref{sec:arch}), e essa citação não era falsa: o
 Aggregator de fato era, desde a primeira versão, supervisionado e
 recuperado corretamente. O que a citação omitia, e que só a injeção de
 falhas sistemática expôs, é que \emph{nem todo processo do sistema estava
 sob essa mesma árvore}. Isso é uma classe de erro estruturalmente diferente
 de um bug de lógica de negócio: o código do EdgeNode em si estava correto
 (a lógica de \textit{ring buffer}, a máquina de estados,
-a matemática de \textit{flush}) --- o gap estava inteiramente na
+a matemática de \textit{flush}). O gap estava inteiramente na
 \emph{composição} do sistema, algo que revisão de código dificilmente
 detecta e que só se manifesta sob a condição específica de um \textit{crash}
 do próprio processo (não do seu vizinho). Isso sugere que qualquer
-reivindicação de resiliência baseada na plataforma escolhida --- não só em
-FL, não só em BEAM --- deveria vir acompanhada de evidência de injeção de
-falhas cobrindo cada processo do sistema individualmente, não apenas os
+reivindicação de resiliência baseada na plataforma escolhida, não só em
+FL, não só em BEAM, deveria vir acompanhada de evidência de injeção de
+falhas cobrindo cada processo do sistema individualmente, e não só os
 mais críticos ou mais fáceis de testar.
 
 \subsection{Limitações}
@@ -886,15 +886,15 @@ mais críticos ou mais fáceis de testar.
   \item \textbf{Escala do modelo:} os Experimentos B/D/E usam um MLP de
     $25{.}450$ parâmetros. O microbenchmark de escala (Seção~\ref{sec:discussion},
     item de overhead de checkpoint) já ancora essa preocupação num ponto
-    real, não apenas especulativo: para o MLP de \statScaleLargeParams{}
+    real, e não só especulativo: para o MLP de \statScaleLargeParams{}
     parâmetros testado ali ($\statScaleFactor$ maior), um ring buffer com
     $B_{\max}=5$ ocuparia $\approx\statScaleLargeRingBufferMB$\,MB por nó ---
     medido diretamente, não extrapolado. Modelos de produção têm
     $10^6$--$10^{10}$ parâmetros, um intervalo que ainda inclui escalas
     muito além da testada aqui; extrapolando linearmente a partir do byte
     count real medido, um modelo com $10^7$ parâmetros ocuparia
-    $\approx 190$\,MB só no ring buffer de um único nó --- a ETS torna-se
-    gargalo real de memória nessa escala, não apenas hipotético, ainda que
+    $\approx 190$\,MB só no ring buffer de um único nó. A ETS torna-se
+    gargalo real de memória nessa escala, e não só hipotético, ainda que
     a validação direta permaneça limitada a duas ordens de grandeza acima
     da arquitetura original, não às $10$ ordens do limite superior de
     produção.
@@ -931,12 +931,12 @@ mais críticos ou mais fáceis de testar.
     escalada para disco já aplicada ao modelo (trabalho futuro,
     Seção~\ref{sec:conclusion}).
   \item \textbf{Overhead de checkpoint mensurável, e sub-linear na escala
-    testada --- ao contrário do que se assumia:} medido diretamente
+    testada, ao contrário do que se assumia:} medido diretamente
     (microbenchmark isolado, 1.000 chamadas a
     \texttt{AFL.Aggregator.update\_sync/2} com e sem a linha de
     \texttt{AFL.ModelKeeper.checkpoint/1}, 5 repetições de cada):
     $589{,}8\,\mu$s/update com \textit{checkpoint} vs.\ $559{,}0\,\mu$s/update
-    sem --- overhead de $\approx30{,}8\,\mu$s/update ($\approx5{,}5\%$
+    sem: overhead de $\approx30{,}8\,\mu$s/update ($\approx5{,}5\%$
     relativo) para o MLP de \statScaleSmallParams{} parâmetros usado neste
     trabalho. Uma versão anterior deste texto assumia, sem medir, que ``o
     custo de um \texttt{:ets.insert} tende a crescer com o tamanho do
@@ -946,7 +946,7 @@ mais críticos ou mais fáceis de testar.
     $\statScaleFactor$ maior (\statScaleLargeParams{} parâmetros,
     \texttt{AFL.Model.build\_large/0}, $784\!\to\!1024\!\to\!512\!\to\!10$),
     o tempo por inserção cresce de $\statScaleSmallUsPerInsert\,\mu$s para
-    $\statScaleLargeUsPerInsert\,\mu$s --- um fator de apenas
+    $\statScaleLargeUsPerInsert\,\mu$s: um fator de apenas
     $\statScaleTimeRatio$, não os $\statScaleFactor$ que uma extrapolação
     linear preveria. Isso é consistente com o comportamento de
     \textit{refc binaries} do Erlang: tensores grandes são referenciados,
@@ -963,56 +963,56 @@ mais críticos ou mais fáceis de testar.
 \label{sec:conclusion}
 
 Este trabalho partiu de uma suposição comum em sistemas de FL construídos
-sobre plataformas com tolerância a falhas nativa --- que a resiliência é
-uma propriedade herdada automaticamente da plataforma --- e a submeteu a
+sobre plataformas com tolerância a falhas nativa, a de que a resiliência é
+uma propriedade herdada automaticamente da plataforma, e a submeteu a
 verificação empírica sistemática, via Chaos Engineering~\cite{basiri2016},
 em vez de aceitá-la por inspeção de código. O resultado central é que essa
 suposição estava \textbf{parcialmente falsa}, em dois componentes
 distintos do sistema. O processo EdgeNode não estava em nenhuma árvore de
 supervisão, e seu \textit{ring buffer} ETS não sobrevivia ao próprio
-\textit{crash} do processo que o criava --- sob 60 gradientes injetados em
+\textit{crash} do processo que o criava: sob 60 gradientes injetados em
 20 \textit{crashes}, \textbf{100\% eram perdidos} (R1, Seção~\ref{sec:r1}).
-Mais grave: o Aggregator \emph{era} corretamente supervisionado, mas seu
-estado não --- sob 100 rodadas de treino injetadas em 20 \textit{crashes},
+Mais grave, o Aggregator \emph{era} corretamente supervisionado, mas seu
+estado não. Sob 100 rodadas de treino injetadas em 20 \textit{crashes},
 \textbf{100\% do progresso de treinamento era destruído} a cada
 \textit{crash}, reiniciando sempre a partir de pesos estáticos, como se
-nenhum treinamento tivesse ocorrido (R2, Seção~\ref{sec:r2}) --- um único
+nenhum treinamento tivesse ocorrido (R2, Seção~\ref{sec:r2}): um único
 ponto de falha capaz de apagar o modelo global inteiro. As correções
 (\texttt{AFL.EdgeNodeSupervisor} + \texttt{AFL.BufferKeeper} para o
 EdgeNode; \texttt{AFL.ModelKeeper} para o Aggregator, Seção~\ref{sec:gap})
 eliminam ambas as perdas por completo sob o mesmo protocolo
 (\textbf{0/60} e \textbf{0/100}, respectivamente), com tempo de
 recuperação sub-milissegundo preservado (R3, Seção~\ref{sec:r3}: mediana
-$\statExpRThreeAggregatorMedian$\,ms para o Aggregator, $\statExpRThreeEdgeNodeMedian$\,ms para o EdgeNode) --- mais de
+$\statExpRThreeAggregatorMedian$\,ms para o Aggregator, $\statExpRThreeEdgeNodeMedian$\,ms para o EdgeNode), mais de
 três ordens de grandeza mais rápido que orquestradores de contêiner
 convencionais, por não depender de re-provisionamento de sistema
 operacional. Esta é a contribuição central deste trabalho: não uma nova
 fórmula de agregação, mas uma metodologia de verificação de resiliência
 via injeção de falhas sistemática, e os gaps reais que ela expôs e
-permitiu corrigir com evidência antes/depois, não apenas por argumento de
+permitiu corrigir com evidência antes/depois, em vez de argumento de
 design.
 
 A extensão do escopo de falhas confirma que essas correções se sustentam
 sob estresse adicional, e revela um terceiro gap que expôs uma limitação
 estrutural do próprio padrão de correção usado nos dois primeiros. Sob
-falha concorrente (R4, Seção~\ref{sec:r4}) --- EdgeNode e Aggregator
-crashando juntos --- não há interação problemática: a perda permanece em
+falha concorrente (R4, Seção~\ref{sec:r4}), com EdgeNode e Aggregator
+crashando juntos, não há interação problemática: a perda permanece em
 0\%, como nos casos isolados. Já o Experimento~R5 (Seção~\ref{sec:r5})
 mostrou que o padrão de herdeiro ETS usado nas duas primeiras correções
 tem uma janela de corrida real e total (não um instante raro): se o
 próprio processo herdeiro morre antes do processo que ele protege, a
 perda é de 100\%, porque o \texttt{:heir} de uma tabela ETS é vinculado a
 um \textit{pid} no momento da criação da tabela, não re-vinculado quando
-o herdeiro reinicia --- e encadear um segundo herdeiro não fecharia essa
-janela, apenas a deslocaria um nível acima. A correção estrutural
---- posse invertida (o dono nunca repassa a tabela) combinada, para o
-modelo global, com checkpoint atômico em disco --- fecha esse gap por
+o herdeiro reinicia; encadear um segundo herdeiro não fecharia essa
+janela, apenas a deslocaria um nível acima. A correção estrutural,
+posse invertida (o dono nunca repassa a tabela) combinada, para o
+modelo global, com checkpoint atômico em disco, fecha esse gap por
 completo onde ele mais importava
 (\textbf{\statExpRFiveModelOwnerDeadPct\%} de perda ao matar o dono do
 modelo, contra 100\% antes da correção), e deixa um resíduo aceito e
 caracterizado no buffer de gradientes
-(\textbf{\statExpRFiveBufferOwnerDeadPct\%}, sem persistência em disco)
---- reportado como tal, um trade-off explícito entre o custo da correção
+(\textbf{\statExpRFiveBufferOwnerDeadPct\%}, sem persistência em disco),
+reportado como tal: um trade-off explícito entre o custo da correção
 completa e a criticidade de cada estado, não uma lacuna omitida. A
 validação em rede real (Seção~\ref{sec:results_dist}, containers Docker
 com TCP genuíno em vez de \texttt{Process.sleep}) confirma que os números
@@ -1020,33 +1020,33 @@ obtidos sob latência simulada numa única VM BEAM não escondiam nenhum
 efeito de rede real relevante para essas conclusões.
 
 A implementação em Elixir/BEAM demonstra que a plataforma OTP oferece
-primitivos nativos --- \texttt{gen\_statem}, \texttt{Process.monitor},
-\texttt{:ets} --- que mapeiam diretamente sobre os requisitos de sistemas
+primitivos nativos (\texttt{gen\_statem}, \texttt{Process.monitor},
+\texttt{:ets}) que mapeiam diretamente sobre os requisitos de sistemas
 de FL resilientes, reduzindo a complexidade de implementação de
 tolerância a falhas \emph{quando corretamente fiados a cada processo}: os
 três gaps descobertos neste trabalho (Seções~\ref{sec:gap},
 \ref{sec:r1}--\ref{sec:r2}, \ref{sec:r5}) mostram que esses primitivos não
 protegem automaticamente um processo deixado fora da árvore de supervisão,
 nem por composição ingênua de mais processos do mesmo tipo (herdeiro de
-herdeiro) --- a plataforma reduz o esforço de implementação da
+herdeiro). A plataforma reduz o esforço de implementação da
 resiliência, mas fechar um gap de verdade, às vezes, exige trocar de
-camada de abstração (processo/ETS para persistência em disco), não apenas
-adicionar mais um processo; e essa diferença só é visível por verificação
+camada de abstração (processo/ETS para persistência em disco), em vez de
+simplesmente adicionar mais um processo; e essa diferença só é visível por verificação
 empírica, não por inspeção de código.
 
 Como trabalhos futuros, propõe-se, em ordem de prioridade:
 (i)~aplicar a mesma escalada para disco usada no \texttt{AFL.ModelKeeper}
 ao \texttt{AFL.BufferKeeper}, fechando o resíduo aceito do Experimento~R5
-(Seção~\ref{sec:r5}) para o buffer de gradientes também --- provavelmente
+(Seção~\ref{sec:r5}) para o buffer de gradientes também, provavelmente
 via um formato \textit{append-only} (WAL) em vez de um snapshot completo
 por escrita, já que o buffer muda a cada gradiente, não a cada rodada;
 (ii)~generalizar \texttt{AFL.EdgeNodeSupervisor} para múltiplas instâncias
 nomeadas dinamicamente e caracterizar falhas em cascata entre vários
-EdgeNodes --- o Experimento~R4 (Seção~\ref{sec:r4}) já descarta interação
+EdgeNodes: o Experimento~R4 (Seção~\ref{sec:r4}) já descarta interação
 problemática entre EdgeNode e Aggregator crashando juntos, mas não cobre
 múltiplos EdgeNodes simultâneos;
 (iii)~validação com modelos de escala de produção real
-(CNNs/Transformers, $>10^8$ parâmetros) --- o microbenchmark de
+(CNNs/Transformers, $>10^8$ parâmetros): o microbenchmark de
 checkpoint (Seção~\ref{sec:discussion}) já cobre $\statScaleLargeParams{}$
 parâmetros ($\statScaleFactor$ acima do MLP original), mas isso ainda é
 3-4 ordens de grandeza abaixo do limite superior de produção
@@ -1057,7 +1057,7 @@ arquiteturas e escalas muito maiores, ou se é específica da faixa
 testada;
 (iv)~repetir a Validação em Rede Real (Seção~\ref{sec:exp_dist}) sobre uma
 rede geograficamente distribuída de fato (múltiplas máquinas físicas ou
-regiões de nuvem), não apenas a bridge local do Docker usada nesta
+regiões de nuvem), diferente da bridge local do Docker usada nesta
 versão;
 (v)~caracterizar como a capacidade do ring buffer ($B_{\max}$) e uma
 política adaptativa de dimensionamento afetam a tolerância a
