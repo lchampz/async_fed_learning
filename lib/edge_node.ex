@@ -11,10 +11,11 @@ defmodule AFL.EdgeNode do
   @impl true
   def init(id) do
     Logger.info("[EdgeNode #{id}] Starting")
-    # Reivindica o buffer do AFL.BufferKeeper em vez de criar uma tabela
-    # nova incondicionalmente — se uma instância anterior deste EdgeNode
-    # morreu (crash), o conteúdo bufferizado sobrevive e é devolvido aqui.
-    AFL.BufferKeeper.claim_buffer()
+    # A tabela :edge_buffer pertence permanentemente ao AFL.BufferKeeper
+    # (posse invertida — ver moduledoc) — este processo nunca a possui,
+    # nunca a cria e nunca a reivindica; apenas escreve nela pelo nome.
+    # Se esta instância morreu antes (crash), o conteúdo bufferizado
+    # continua lá, intacto, sem nenhum handoff necessário.
 
     {state, monitor_ref, actions} =
       case Process.whereis(AFL.Aggregator) do
@@ -51,15 +52,6 @@ defmodule AFL.EdgeNode do
       :ok -> :keep_state_and_data
       {:error, _} -> go_offline(weights, data)
     end
-  end
-
-  # :ets.give_away/3 notifica o NOVO proprietário com essa mesma mensagem
-  # (não só a transferência automática via :heir na morte do dono anterior)
-  # — chega tanto em :connected quanto em :disconnected, dependendo de
-  # quando o claim aconteceu; nenhuma ação além de aceitar é necessária.
-  @impl true
-  def handle_event(:info, {:"ETS-TRANSFER", :edge_buffer, _from_pid, _gift}, _state, _data) do
-    :keep_state_and_data
   end
 
   # Aggregator process went down — captured via Process.monitor

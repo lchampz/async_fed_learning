@@ -4,8 +4,17 @@ defmodule AFL.Test do
 
   # Reset the supervised Aggregator to a clean state before each test.
   # We do NOT stop it — that would trigger the supervisor with unknown timing.
+  #
+  # Also clears :edge_buffer unconditionally before every test. Under
+  # posse invertida (AFL.BufferKeeper owns this table permanently — see
+  # its moduledoc), the table is never destroyed between tests, so a
+  # previous test's on_exit cleanup racing with process teardown could
+  # otherwise leak entries into the next test (order-dependent flakiness).
+  # Clearing it here, independently of any single test's own cleanup,
+  # makes every test's starting state deterministic regardless of order.
   setup do
     AFL.Aggregator.reset(MockML.initial_weights())
+    :ets.delete_all_objects(:edge_buffer)
     :ok
   end
 

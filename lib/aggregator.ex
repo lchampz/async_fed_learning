@@ -20,19 +20,14 @@ defmodule AFL.Aggregator do
 
   @impl true
   def init(initial_weights) do
-    # Reivindica o snapshot do AFL.ModelKeeper em vez de sempre partir de
-    # `initial_weights` incondicionalmente — se uma instância anterior
-    # deste Aggregator morreu, o progresso de treinamento (pesos, versão,
-    # total de amostras) sobrevive e é devolvido aqui.
-    state = AFL.ModelKeeper.claim_state(%__MODULE__{weights: initial_weights})
+    # A tabela :aggregator_state pertence permanentemente ao
+    # AFL.ModelKeeper (posse invertida — ver seu moduledoc); este processo
+    # nunca a possui. Recupera o snapshot mais recente em vez de sempre
+    # partir de `initial_weights` incondicionalmente — se uma instância
+    # anterior deste Aggregator morreu, o progresso de treinamento (pesos,
+    # versão, total de amostras) sobrevive e é devolvido aqui.
+    state = AFL.ModelKeeper.recover(%__MODULE__{weights: initial_weights})
     {:ok, state}
-  end
-
-  # Notificação de ownership recebida via :ets.give_away/3 ao reivindicar o
-  # snapshot no init/1 acima — nenhuma ação além de aceitar é necessária.
-  @impl true
-  def handle_info({:"ETS-TRANSFER", :aggregator_state, _from_pid, :claimed}, state) do
-    {:noreply, state}
   end
 
   @doc """

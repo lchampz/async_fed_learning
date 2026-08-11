@@ -981,59 +981,70 @@ defmodule AFL.Experiments do
   end
 
   # -------------------------------------------------------------------
-  # Exp R5 — Janela de Crash do Herdeiro
+  # Exp R5 — Crash do Dono sob Posse Invertida
   #
-  # Limitação reconhecida (não testada até agora): o `:heir` de uma tabela
-  # ETS é vinculado ao PID específico do processo herdeiro NO MOMENTO da
-  # criação da tabela. Se esse processo herdeiro (AFL.BufferKeeper) morrer
-  # e for reiniciado pelo supervisor, a tabela existente continua vinculada
-  # ao PID ANTIGO (morto) — o novo processo não sabe da tabela órfã. Testa-
-  # se aqui exatamente esse cenário: mata-se o herdeiro primeiro, e então
-  # (imediatamente, sem aguardar o supervisor reiniciá-lo) mata-se o
-  # próprio dono (EdgeNode) — medindo se o conteúdo bufferizado sobrevive
-  # ou não a essa sequência, contra a mesma medição com o herdeiro vivo
-  # (linha de base R1) para quantificar o tamanho real dessa janela de
-  # risco, hoje só discutida teoricamente na Seção de Limitações.
+  # Achado original (versão anterior deste experimento): o `:heir` de uma
+  # tabela ETS é vinculado ao PID do processo herdeiro NO MOMENTO da
+  # criação da tabela; se esse herdeiro (AFL.BufferKeeper) morre e é
+  # reiniciado, o vínculo antigo fica órfão — matar o dono (EdgeNode) em
+  # seguida destruía a tabela sem ninguém para recebê-la (100% de perda).
+  # Encadear um segundo herdeiro não fecharia essa janela — apenas a
+  # deslocaria um nível, pela mesma coincidência de timing.
+  #
+  # Correção estrutural aplicada: posse invertida. AFL.BufferKeeper e
+  # AFL.ModelKeeper agora possuem suas tabelas PERMANENTEMENTE (nunca as
+  # repassam via `:ets.give_away/3`), com zero lógica de domínio — o
+  # EdgeNode e o Aggregator apenas escrevem nelas pelo nome. Isso elimina
+  # por completo o cenário original: matar o worker nunca mais toca a
+  # tabela, porque o worker nunca a possuiu. O que resta a testar é o
+  # cenário novo, mais difícil: e se o próprio DONO morrer? Testa-se aqui
+  # exatamente isso — para o buffer (sem persistência em disco, único
+  # recurso é a árvore `:rest_for_one`) e para o modelo (com checkpoint em
+  # disco no AFL.ModelKeeper, Seção~\ref{sec:r5}) — para medir se a
+  # escalada de camada de persistência de fato fecha o gap onde ele mais
+  # importa (o modelo global), e caracterizar honestamente o que ainda não
+  # fecha (o buffer, perda ainda esperada sob esse cenário raro e
+  # determinístico, não mais uma janela de corrida silenciosa).
   # -------------------------------------------------------------------
 
   def experiment_r5_heir_crash_race do
-    banner("R5", "Janela de crash do herdeiro — BufferKeeper morto antes do dono")
+    banner("R5", "Crash do dono sob posse invertida — buffer (residual) vs. modelo (checkpoint em disco)")
 
     rows =
       Enum.flat_map(1..@h_trials, fn trial ->
         progress("R5", trial, @h_trials)
 
-        lost_heir_dead = simulate_heir_crash_then_owner_crash()
-        lost_heir_alive = simulate_crash_with_heir(@h_buffer_entries)
+        buffer_lost = simulate_buffer_owner_crash(@h_buffer_entries)
+        rounds_lost = simulate_model_owner_crash(@h_training_rounds)
 
         [
-          %{trial: trial, scenario: :heir_morto_antes, entries_written: @h_buffer_entries, entries_lost: lost_heir_dead},
-          %{trial: trial, scenario: :heir_vivo, entries_written: @h_buffer_entries, entries_lost: lost_heir_alive}
+          %{trial: trial, scenario: :buffer_dono_morto, entries_written: @h_buffer_entries, entries_lost: buffer_lost},
+          %{trial: trial, scenario: :modelo_dono_morto, entries_written: @h_training_rounds, entries_lost: rounds_lost}
         ]
       end)
 
     export_csv(rows, "#{@results_dir}/exp_r5_heir_crash.csv")
 
-    for scenario <- [:heir_morto_antes, :heir_vivo] do
+    for scenario <- [:buffer_dono_morto, :modelo_dono_morto] do
       grp = Enum.filter(rows, &(&1.scenario == scenario))
       total_lost = grp |> Enum.map(& &1.entries_lost) |> Enum.sum()
       total_written = grp |> Enum.map(& &1.entries_written) |> Enum.sum()
-      IO.puts("  → #{scenario}: #{total_lost}/#{total_written} gradientes perdidos em #{@h_trials} crashes")
+      IO.puts("  → #{scenario}: #{total_lost}/#{total_written} perdidos em #{@h_trials} crashes")
     end
 
     rows
   end
 
-  # Mata o herdeiro (AFL.BufferKeeper) e, sem aguardar seu restart pelo
-  # supervisor, mata o dono (EdgeNode) imediatamente depois — testando a
-  # janela de risco real, não apenas teórica, descrita na Seção de
-  # Limitações.
-  defp simulate_heir_crash_then_owner_crash do
+  # Mata o AFL.BufferKeeper (dono permanente do buffer, sem persistência em
+  # disco) — mede a perda residual esperada: a tabela morre com o dono, e
+  # o :rest_for_one derruba e reinicia o EdgeNode em cascata de forma
+  # consistente (sem estado inválido), mas sem recuperar o conteúdo.
+  defp simulate_buffer_owner_crash(n_entries) do
     {:ok, _} = AFL.EdgeNodeSupervisor.start_edge_node(:r5_probe)
     Process.sleep(50)
     kill_aggregator_and_wait()
 
-    Enum.each(1..@h_buffer_entries, fn _ -> :gen_statem.cast(AFL.EdgeNode, :train_and_send) end)
+    Enum.each(1..n_entries, fn _ -> :gen_statem.cast(AFL.EdgeNode, :train_and_send) end)
     :sys.get_state(AFL.EdgeNode)
     before_crash = :ets.info(:edge_buffer, :size)
 
@@ -1042,19 +1053,41 @@ defmodule AFL.Experiments do
     Process.exit(bk_pid, :kill)
     receive do: ({:DOWN, ^bk_ref, :process, ^bk_pid, _} -> :ok)
 
-    old_pid = Process.whereis(AFL.EdgeNode)
-    ref = Process.monitor(old_pid)
-    Process.exit(old_pid, :kill)
-    receive do: ({:DOWN, ^ref, :process, ^old_pid, _} -> :ok)
-
-    new_pid = wait_for_new_pid(AFL.EdgeNode, old_pid, 2_000)
+    new_bk = wait_for_new_pid(AFL.BufferKeeper, bk_pid, 2_000)
     Process.sleep(50)
 
-    recovered = if new_pid, do: :ets.info(:edge_buffer, :size), else: 0
+    recovered = if new_bk, do: :ets.info(:edge_buffer, :size), else: 0
     lost = max(before_crash - recovered, 0)
 
     AFL.EdgeNodeSupervisor.stop_edge_node()
     lost
+  end
+
+  # Mata o AFL.ModelKeeper (dono permanente do estado do modelo) — mede se
+  # o checkpoint em disco (escrita atômica via rename, Seção~\ref{sec:r5})
+  # fecha o gap: o novo AFL.ModelKeeper relê o arquivo no próprio init/1, e
+  # o Aggregator (reiniciado em cascata pelo :rest_for_one) recupera desse
+  # snapshot em vez de partir dos pesos iniciais estáticos.
+  defp simulate_model_owner_crash(n_rounds) do
+    AFL.Aggregator.reset(MockML.initial_weights())
+    Enum.each(1..n_rounds, fn _ -> AFL.Aggregator.update_sync(Nx.broadcast(1.0, {10}), 100) end)
+    # Aguarda o checkpoint assíncrono em disco da última rodada persistir
+    # antes de matar o dono — sem isso, mediríamos o atraso do I/O, não o
+    # gap estrutural.
+    Process.sleep(100)
+    version_before = AFL.Aggregator.get_version()
+
+    agg_pid = wait_for_pid(AFL.Aggregator, 2_000)
+    mk_pid = Process.whereis(AFL.ModelKeeper)
+    mk_ref = Process.monitor(mk_pid)
+    Process.exit(mk_pid, :kill)
+    receive do: ({:DOWN, ^mk_ref, :process, ^mk_pid, _} -> :ok)
+
+    new_agg = wait_for_new_pid(AFL.Aggregator, agg_pid, 2_000)
+    Process.sleep(50)
+
+    version_after = if new_agg, do: AFL.Aggregator.get_version(), else: 0
+    max(version_before - version_after, 0)
   end
 
   defp experiment_h1_data_loss do

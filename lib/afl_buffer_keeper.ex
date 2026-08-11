@@ -1,55 +1,54 @@
 defmodule AFL.BufferKeeper do
   @moduledoc """
-  Herdeiro (`:heir`) fixo do ring buffer ETS do EdgeNode.
+  Dono permanente e sem lógica de domínio da tabela ETS do ring buffer do
+  EdgeNode (`:edge_buffer`).
 
-  Gap de resiliência descoberto empiricamente (Experimento H): por padrão,
-  uma tabela ETS morre com o processo que a criou. O `EdgeNode` criava sua
-  própria tabela `:edge_buffer` sem herdeiro — se o próprio EdgeNode
-  falhasse (não o Aggregator), a tabela e todos os gradientes bufferizados
-  eram destruídos junto, mesmo que algo o reiniciasse depois: a nova
-  instância simplesmente criava uma tabela vazia.
+  Gap original (Experimento R1, corrigido numa primeira versão via
+  `:heir`) e gap residual (Experimento R5): o padrão de herdeiro vincula o
+  `:heir` a um `pid` no momento da criação da tabela, e esse vínculo nunca
+  é atualizado se o próprio herdeiro reinicia --- se o herdeiro morre
+  antes do dono, a tabela morre com o dono sem ninguém para recebê-la
+  (100% de perda, ver `sec:r5` no artigo). Encadear um segundo herdeiro
+  não fecha essa janela: ela só se desloca um nível, pela mesma
+  coincidência de timing.
 
-  Este processo vive na árvore de supervisão estática da aplicação (nunca
-  reinicia junto com o EdgeNode) e herda a tabela via `:heir` sempre que o
-  proprietário atual morre, devolvendo-a para a próxima instância que a
-  reivindicar via `claim_buffer/0` — preservando o conteúdo através de
-  crashes.
+  A correção estrutural é não ter herdeiro: a tabela nunca pertence ao
+  EdgeNode. Este processo a possui permanentemente e nunca a repassa via
+  `:ets.give_away/3` --- ele não tem nenhuma lógica de domínio (nenhuma
+  agregação, nenhum tratamento de gradiente), então sua própria
+  superfície de crash é próxima de zero. O `AFL.EdgeNode` escreve direto
+  na tabela nomeada e pública; seu crash nunca toca a tabela, porque ele
+  nunca foi o proprietário.
+
+  Isso não elimina todo risco: se este processo morrer (finalização pelo
+  supervisor, `Process.exit/2` externo, queda da BEAM), a tabela morre
+  com ele --- mas esse é um cenário raro e determinístico (a árvore de
+  supervisão usa `:rest_for_one`, então o EdgeNode reinicia junto, de
+  forma consistente), não uma janela de corrida silenciosa e sem limite
+  de tempo. Fechar esse resíduo por completo exige escalar para uma
+  camada de persistência (disco), não mais processos ETS --- ver
+  `AFL.ModelKeeper` para essa escalada aplicada ao estado mais crítico do
+  sistema (o modelo global).
   """
   use GenServer
+
+  @table :edge_buffer
 
   def start_link(_opts \\ []),
     do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
-  @doc """
-  Chamado pelo EdgeNode ao iniciar: reivindica a tabela órfã de uma
-  instância anterior (se existir, com seu conteúdo intacto) ou cria uma
-  nova, já com este processo como herdeiro.
-  """
-  def claim_buffer do
-    GenServer.call(__MODULE__, :claim_buffer)
-  end
+  def table, do: @table
 
   @impl true
-  def init(:ok), do: {:ok, %{table: nil}}
+  def init(:ok) do
+    :ets.new(@table, [
+      :set,
+      :public,
+      :named_table,
+      read_concurrency: true,
+      write_concurrency: true
+    ])
 
-  @impl true
-  def handle_call(:claim_buffer, {caller_pid, _}, %{table: nil} = state) do
-    table =
-      :ets.new(:edge_buffer, [:set, :protected, :named_table, {:heir, self(), :orphaned}])
-
-    :ets.give_away(table, caller_pid, :claimed)
-    {:reply, table, state}
-  end
-
-  def handle_call(:claim_buffer, {caller_pid, _}, %{table: table} = state) do
-    :ets.give_away(table, caller_pid, :claimed)
-    {:reply, table, %{state | table: nil}}
-  end
-
-  # Disparado automaticamente pela BEAM quando o proprietário atual da
-  # tabela (o EdgeNode) morre por qualquer motivo — inclusive :kill.
-  @impl true
-  def handle_info({:"ETS-TRANSFER", table, _from_pid, :orphaned}, state) do
-    {:noreply, %{state | table: table}}
+    {:ok, %{}}
   end
 end

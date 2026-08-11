@@ -25,6 +25,9 @@ async_fed_learning-*.tar
 # macOS junk
 .DS_Store
 
+# Checkpoint em disco do AFL.ModelKeeper (estado de runtime, não fonte)
+/ckpt/
+
 # Artefatos LaTeX gerados pelo tectonic (não versionar, só o .tex fonte)
 artigo/main.pdf
 artigo/main.log

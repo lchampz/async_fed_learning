@@ -434,15 +434,15 @@ plt.close()
 print("✓ fig7_resilience.pdf")
 
 # ════════════════════════════════════════════════════════════════════════════
-# FIGURA 8 — Experimento R4 (falha concorrente) e R5 (janela de crash do herdeiro)
+# FIGURA 8 — Experimento R4 (falha concorrente) e R5 (crash do dono sob posse invertida)
 # ════════════════════════════════════════════════════════════════════════════
 df_r4_fig = pd.read_csv("exp_r4_concurrent_crash.csv")
 df_r5_fig = pd.read_csv("exp_r5_heir_crash.csv")
 
 fig, (ax_r4, ax_r5) = plt.subplots(1, 2, figsize=(11, 4.5))
 fig.suptitle(
-    "Experimento R4/R5 — Falha Concorrente e Janela de Crash do Herdeiro\n"
-    "(EdgeNode e Aggregator crashando juntos; BufferKeeper morto antes do dono)",
+    "Experimento R4/R5 — Falha Concorrente e Crash do Dono sob Posse Invertida\n"
+    "(EdgeNode e Aggregator crashando juntos; BufferKeeper/ModelKeeper mortos, não os workers)",
     fontsize=10, y=1.03
 )
 
@@ -459,20 +459,20 @@ ax_r4.set_ylabel("Perdido sob falha concorrente (%)")
 ax_r4.set_ylim(0, 110)
 ax_r4.set_title(f"(a) R4 — EdgeNode + Aggregator\ncrasham juntos ({df_r4_fig.trial.nunique()} trials)", fontsize=9.5)
 
-r5_heir_dead = df_r5_fig[df_r5_fig.scenario == "heir_morto_antes"]
-r5_heir_alive = df_r5_fig[df_r5_fig.scenario == "heir_vivo"]
-pct_dead = 100 * r5_heir_dead["entries_lost"].sum() / r5_heir_dead["entries_written"].sum()
-pct_alive = 100 * r5_heir_alive["entries_lost"].sum() / r5_heir_alive["entries_written"].sum()
+r5_buffer = df_r5_fig[df_r5_fig.scenario == "buffer_dono_morto"]
+r5_modelo = df_r5_fig[df_r5_fig.scenario == "modelo_dono_morto"]
+pct_buffer = 100 * r5_buffer["entries_lost"].sum() / r5_buffer["entries_written"].sum()
+pct_modelo = 100 * r5_modelo["entries_lost"].sum() / r5_modelo["entries_written"].sum()
 bars_r5 = ax_r5.bar(
-    ["Herdeiro morto\nantes do dono", "Herdeiro vivo\n(R1, linha de base)"], [pct_dead, pct_alive],
+    ["Buffer\n(BufferKeeper morto)", "Modelo\n(ModelKeeper morto)"], [pct_buffer, pct_modelo],
     color=[PALETTE["sync"], PALETTE["converge"]], alpha=0.85
 )
-for bar, val in zip(bars_r5, [pct_dead, pct_alive]):
+for bar, val in zip(bars_r5, [pct_buffer, pct_modelo]):
     ax_r5.text(bar.get_x() + bar.get_width() / 2, val + 2, f"{val:.0f}%",
                ha="center", va="bottom", fontsize=9, fontweight="bold")
-ax_r5.set_ylabel("Gradientes perdidos (%)")
+ax_r5.set_ylabel("Perdido sob crash do dono (%)")
 ax_r5.set_ylim(0, 110)
-ax_r5.set_title(f"(b) R5 — Janela de crash\ndo herdeiro ({r5_heir_dead.trial.nunique()} trials/cenário)", fontsize=9.5)
+ax_r5.set_title(f"(b) R5 — Crash do dono, posse\ninvertida ({r5_buffer.trial.nunique()} trials/cenário)", fontsize=9.5)
 
 plt.tight_layout()
 plt.savefig("fig8_r4_r5.pdf", bbox_inches="tight")
@@ -903,9 +903,10 @@ macros["statExpRFourRoundsLost"] = str(r4_rounds_lost)
 macros["statExpRFourRoundsTrained"] = str(r4_rounds_trained)
 macros["statExpRFourTrials"] = str(len(df_r4))
 
-# Exp. R5 — janela de crash do herdeiro (BufferKeeper morto antes do dono)
+# Exp. R5 — crash do dono sob posse invertida (BufferKeeper/ModelKeeper
+# mortos diretamente, não mais um herdeiro encadeado)
 df_r5 = pd.read_csv("exp_r5_heir_crash.csv")
-for scenario, tag in [("heir_morto_antes", "HeirDead"), ("heir_vivo", "HeirAlive")]:
+for scenario, tag in [("buffer_dono_morto", "BufferOwnerDead"), ("modelo_dono_morto", "ModelOwnerDead")]:
     sub = df_r5[df_r5.scenario == scenario]
     lost = sub["entries_lost"].sum()
     written = sub["entries_written"].sum()
